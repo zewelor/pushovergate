@@ -250,6 +250,10 @@ func TestMessageValidation(t *testing.T) {
 	invalid1025Runes := strings.Repeat("a", 1025)
 	valid1024Unicode := strings.Repeat("日", 1024)
 	invalid1025Unicode := strings.Repeat("日", 1025)
+	valid512URL := "https://example.com/" + strings.Repeat("a", 512-len("https://example.com/"))
+	invalid513URL := valid512URL + "a"
+	valid100Title := strings.Repeat("t", 100)
+	invalid101Title := strings.Repeat("t", 101)
 
 	tests := []struct {
 		name           string
@@ -313,6 +317,71 @@ func TestMessageValidation(t *testing.T) {
 			expectedStatus: http.StatusBadRequest,
 		},
 		{
+			name:           "empty url string",
+			body:           `{"message":"hello","url":""}`,
+			expectedStatus: http.StatusBadRequest,
+		},
+		{
+			name:           "whitespace-only url",
+			body:           `{"message":"hello","url":"   \t  "}`,
+			expectedStatus: http.StatusBadRequest,
+		},
+		{
+			name:           "url exceeding 512 runes",
+			body:           `{"message":"hello","url":"` + invalid513URL + `"}`,
+			expectedStatus: http.StatusBadRequest,
+		},
+		{
+			name:           "url_title without url",
+			body:           `{"message":"hello","url_title":"ArgoCD"}`,
+			expectedStatus: http.StatusBadRequest,
+		},
+		{
+			name:           "empty url_title with valid url",
+			body:           `{"message":"hello","url":"https://example.com","url_title":""}`,
+			expectedStatus: http.StatusBadRequest,
+		},
+		{
+			name:           "whitespace-only url_title with valid url",
+			body:           `{"message":"hello","url":"https://example.com","url_title":"   "}`,
+			expectedStatus: http.StatusBadRequest,
+		},
+		{
+			name:           "url_title exceeding 100 runes",
+			body:           `{"message":"hello","url":"https://example.com","url_title":"` + invalid101Title + `"}`,
+			expectedStatus: http.StatusBadRequest,
+		},
+		{
+			name:           "timestamp zero",
+			body:           `{"message":"hello","timestamp":0}`,
+			expectedStatus: http.StatusBadRequest,
+		},
+		{
+			name:           "timestamp negative",
+			body:           `{"message":"hello","timestamp":-10}`,
+			expectedStatus: http.StatusBadRequest,
+		},
+		{
+			name:           "timestamp non-number",
+			body:           `{"message":"hello","timestamp":"1718000000"}`,
+			expectedStatus: http.StatusBadRequest,
+		},
+		{
+			name:           "null url",
+			body:           `{"message":"ok","url":null}`,
+			expectedStatus: http.StatusBadRequest,
+		},
+		{
+			name:           "null url_title",
+			body:           `{"message":"ok","url_title":null}`,
+			expectedStatus: http.StatusBadRequest,
+		},
+		{
+			name:           "null timestamp",
+			body:           `{"message":"ok","timestamp":null}`,
+			expectedStatus: http.StatusBadRequest,
+		},
+		{
 			name:           "request body exceeding 8 KiB",
 			body:           `{"message":"` + strings.Repeat("x", 8200) + `"}`,
 			expectedStatus: http.StatusRequestEntityTooLarge,
@@ -335,7 +404,7 @@ func TestMessageValidation(t *testing.T) {
 		})
 	}
 
-	// Verify valid payloads with custom Content-Type or 1024 runes
+	// Verify valid payloads with custom Content-Type, limits, or optional fields
 	validCases := []struct {
 		name        string
 		body        string
@@ -355,6 +424,21 @@ func TestMessageValidation(t *testing.T) {
 			name:        "unspecified Content-Type",
 			body:        `{"message":"valid content"}`,
 			contentType: "",
+		},
+		{
+			name:        "all optional fields valid at boundary limits",
+			body:        `{"message":"deploy","url":"` + valid512URL + `","url_title":"` + valid100Title + `","timestamp":1718000000}`,
+			contentType: "application/json",
+		},
+		{
+			name:        "url only without url_title",
+			body:        `{"message":"deploy","url":"https://example.com"}`,
+			contentType: "application/json",
+		},
+		{
+			name:        "timestamp only without url",
+			body:        `{"message":"deploy","timestamp":1718000000}`,
+			contentType: "application/json",
 		},
 	}
 
@@ -424,6 +508,52 @@ func TestUpstreamForwarding(t *testing.T) {
 		if values.Get("message") != messageWithSpaces {
 			t.Fatalf("expected untrimmed message %q, got %q", messageWithSpaces, values.Get("message"))
 		}
+		if values.Has("url") {
+			t.Fatalf("expected no url field in upstream form, got %q", values.Get("url"))
+		}
+		if values.Has("url_title") {
+			t.Fatalf("expected no url_title field in upstream form, got %q", values.Get("url_title"))
+		}
+		if values.Has("timestamp") {
+			t.Fatalf("expected no timestamp field in upstream form, got %q", values.Get("timestamp"))
+		}
+	})
+
+	t.Run("forwards optional url, url_title, and timestamp when provided", func(t *testing.T) {
+		var receivedBody []byte
+
+		upstream := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+			receivedBody, _ = io.ReadAll(r.Body)
+			w.WriteHeader(http.StatusOK)
+			_ = json.NewEncoder(w).Encode(map[string]any{"status": 1})
+		}))
+		defer upstream.Close()
+
+		app := newTestApp(upstream.URL)
+		body := `{"message":"deploy ok","url":"https://argocd.internal","url_title":"ArgoCD UI","timestamp":1718000000}`
+		req := httptest.NewRequest(http.MethodPost, "/messages", strings.NewReader(body))
+		req.Header.Set("Authorization", "Bearer "+testAPIToken)
+		rec := httptest.NewRecorder()
+
+		app.routes().ServeHTTP(rec, req)
+
+		if rec.Code != http.StatusNoContent {
+			t.Fatalf("expected status 204, got %d (%s)", rec.Code, rec.Body.String())
+		}
+
+		values, err := url.ParseQuery(string(receivedBody))
+		if err != nil {
+			t.Fatalf("failed to parse upstream form: %v", err)
+		}
+		if values.Get("url") != "https://argocd.internal" {
+			t.Fatalf("expected url %q, got %q", "https://argocd.internal", values.Get("url"))
+		}
+		if values.Get("url_title") != "ArgoCD UI" {
+			t.Fatalf("expected url_title %q, got %q", "ArgoCD UI", values.Get("url_title"))
+		}
+		if values.Get("timestamp") != "1718000000" {
+			t.Fatalf("expected timestamp %q, got %q", "1718000000", values.Get("timestamp"))
+		}
 	})
 
 	tests := []struct {
@@ -462,6 +592,12 @@ func TestUpstreamForwarding(t *testing.T) {
 			upstreamBody:       ``,
 			expectedStatus:     http.StatusBadGateway,
 		},
+		{
+			name:               "upstream response exceeding 64 KiB",
+			upstreamStatusCode: http.StatusOK,
+			upstreamBody:       strings.Repeat("a", maxUpstreamBytes+1),
+			expectedStatus:     http.StatusBadGateway,
+		},
 	}
 
 	for _, tt := range tests {
@@ -497,6 +633,26 @@ func (e *errorRoundTripper) RoundTrip(*http.Request) (*http.Response, error) {
 	return nil, e.err
 }
 
+type errorReadCloser struct {
+	err error
+}
+
+func (e *errorReadCloser) Read([]byte) (int, error) {
+	return 0, e.err
+}
+
+func (e *errorReadCloser) Close() error {
+	return nil
+}
+
+type responseRoundTripper struct {
+	resp *http.Response
+}
+
+func (r *responseRoundTripper) RoundTrip(*http.Request) (*http.Response, error) {
+	return r.resp, nil
+}
+
 func TestContextCancellationAndTransportError(t *testing.T) {
 	t.Run("upstream transport error", func(t *testing.T) {
 		app := newTestApp("http://127.0.0.1:1")
@@ -525,6 +681,28 @@ func TestContextCancellationAndTransportError(t *testing.T) {
 		cancel()
 
 		req := httptest.NewRequest(http.MethodPost, "/messages", strings.NewReader(`{"message":"test"}`)).WithContext(ctx)
+		req.Header.Set("Authorization", "Bearer "+testAPIToken)
+		rec := httptest.NewRecorder()
+
+		app.routes().ServeHTTP(rec, req)
+
+		if rec.Code != http.StatusBadGateway {
+			t.Fatalf("expected status 502, got %d", rec.Code)
+		}
+	})
+
+	t.Run("upstream response body read error", func(t *testing.T) {
+		app := newTestApp("http://127.0.0.1:1")
+		app.httpClient = &http.Client{
+			Transport: &responseRoundTripper{
+				resp: &http.Response{
+					StatusCode: http.StatusOK,
+					Body:       &errorReadCloser{err: io.ErrUnexpectedEOF},
+				},
+			},
+		}
+
+		req := httptest.NewRequest(http.MethodPost, "/messages", strings.NewReader(`{"message":"test"}`))
 		req.Header.Set("Authorization", "Bearer "+testAPIToken)
 		rec := httptest.NewRecorder()
 
