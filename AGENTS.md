@@ -25,7 +25,7 @@ Apply Jane Street-style correctness, KISS, and convention over configuration: ke
 - Stay within Go 1.26.x. Standard library only for application code.
 - Pin external container images by immutable digest (e.g. `image@sha256:...`).
 - Reference GitHub Actions by full 40-character commit SHA with version comments.
-- No `tools/go.mod`, `golangci-lint`, `govulncheck`, `markdownlint` configuration, Compose, local hooks, release tooling, or Renovate.
+- No `tools/go.mod`, `golangci-lint`, `govulncheck`, `markdownlint` configuration, Compose, local hooks, or release tooling.
 
 ## Change discipline
 
