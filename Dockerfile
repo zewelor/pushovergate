@@ -1,15 +1,16 @@
-FROM --platform=$BUILDPLATFORM golang:1.26.5-trixie@sha256:f1a132429b98724a904e9b3bdbaed399d8f923203c3e5170e6def66d0a7cc04c AS test
+FROM --platform=$BUILDPLATFORM golang:1.27.4-trixie@sha256:b54b2639de8c1bfe538ec5ffc45f29b1932235ac5f6d63c059853646677112d9 AS test
 
 WORKDIR /src
 
 COPY go.mod main.go main_test.go ./
 
-RUN unformatted="$(gofmt -l .)" && \
+RUN go mod tidy -diff && \
+    unformatted="$(gofmt -l .)" && \
     test -z "$unformatted" || { echo "$unformatted"; exit 1; } && \
     go vet ./... && \
     go test -race ./...
 
-FROM --platform=$BUILDPLATFORM golang:1.26.5-trixie@sha256:f1a132429b98724a904e9b3bdbaed399d8f923203c3e5170e6def66d0a7cc04c AS build
+FROM --platform=$BUILDPLATFORM golang:1.27.4-trixie@sha256:b54b2639de8c1bfe538ec5ffc45f29b1932235ac5f6d63c059853646677112d9 AS build
 
 WORKDIR /src
 
