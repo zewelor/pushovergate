@@ -22,7 +22,7 @@ Apply Jane Street-style correctness, KISS, and convention over configuration: ke
 
 ## Dependencies
 
-- Stay within Go 1.26.x. Standard library only for application code.
+- Use the latest stable Go release unless a documented project requirement justifies an exception. Standard library only for application code.
 - Pin external container images by immutable digest (e.g. `image@sha256:...`).
 - Reference GitHub Actions by full 40-character commit SHA with version comments.
 - No `tools/go.mod`, `golangci-lint`, `govulncheck`, `markdownlint` configuration, Compose, local hooks, or release tooling.
