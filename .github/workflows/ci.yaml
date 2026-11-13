@@ -24,7 +24,7 @@ jobs:
           persist-credentials: false
 
       - name: Lint Dockerfile
-        uses: immanuwell/dockerfile-roast@d6afa093a0624b379c2a7e99ca13981b0cf88d57 # 1.5.0
+        uses: immanuwell/dockerfile-roast@1c87b2aa189338c24db4acde40864dae8994de8f # 1.7.0
 
       - name: Run tests in Docker
         run: docker build --target test .
