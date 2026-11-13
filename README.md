@@ -88,3 +88,5 @@ just ci
 # Inspect files included in Docker build context
 just show_dockerignore
 ```
+
+CI runs for pull requests and pushes to `main`. After CI passes, pushes to `main` publish an image, including test-only and documentation-only changes.
