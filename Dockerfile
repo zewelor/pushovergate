@@ -24,7 +24,7 @@ RUN CGO_ENABLED=0 GOOS=$TARGETOS GOARCH=$TARGETARCH \
 
 # Use distroless static to provide root CA certificates for Pushover TLS and a nonroot user.
 # This avoids manual CA cert copying and raw UID configuration required by scratch.
-FROM gcr.io/distroless/static-debian13:nonroot@sha256:f7f8f729987ad0fdf6b05eeeae94b26e6a0f613bdf46feea7fc40f7bd72953e6 AS runtime
+FROM gcr.io/distroless/static-debian13:nonroot@sha256:8ce6dd87e9823c5b48dcfb2c8604714ccb351ce59607327bcc4957448da279b5 AS runtime
 
 COPY --from=build --chown=nonroot:nonroot /pushovergate /pushovergate
 COPY --chown=nonroot:nonroot LICENSE /LICENSE
